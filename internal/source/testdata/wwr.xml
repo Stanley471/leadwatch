@@ -1,0 +1,14 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<rss version="2.0">
+  <channel>
+    <title>WeWorkRemotely Frontend Jobs</title>
+    <link>https://weworkremotely.com</link>
+    <item>
+      <title>Awesome Co is hiring a Fullstack Go/React Engineer</title>
+      <link>https://weworkremotely.com/jobs/12345</link>
+      <description>&lt;p&gt;Looking for an urgent freelance contractor for web development.&lt;/p&gt;</description>
+      <pubDate>Thu, 07 Nov 2026 10:00:00 +0000</pubDate>
+      <guid>wwr-12345</guid>
+    </item>
+  </channel>
+</rss>

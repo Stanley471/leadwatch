@@ -1,0 +1,15 @@
+[
+  {
+    "legal": "Terms of Service"
+  },
+  {
+    "id": "rok-999",
+    "slug": "senior-frontend-developer-acme",
+    "epoch": 1731000500,
+    "company": "Acme Inc",
+    "position": "Senior Frontend Developer",
+    "tags": ["react", "typescript", "remote"],
+    "description": "<p>We need a web developer skilled in React and TypeScript.</p>",
+    "url": "https://remoteok.com/remote-jobs/rok-999"
+  }
+]
