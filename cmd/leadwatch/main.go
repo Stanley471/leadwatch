@@ -108,6 +108,10 @@ func runPoll(ctx context.Context, cfg *config.Config, args []string) {
 		source.NewHNSource(client),
 		source.NewRemoteOKSource(client),
 		source.NewWWRSource(client),
+		source.NewRedditSource(client, source.RedditConfig{
+			ClientID:     cfg.RedditClientID,
+			ClientSecret: cfg.RedditClientSecret,
+		}),
 	}
 
 	bio := score.DefaultBio()
@@ -139,6 +143,10 @@ func runDaemon(ctx context.Context, cfg *config.Config, args []string) {
 		source.NewHNSource(client),
 		source.NewRemoteOKSource(client),
 		source.NewWWRSource(client),
+		source.NewRedditSource(client, source.RedditConfig{
+			ClientID:     cfg.RedditClientID,
+			ClientSecret: cfg.RedditClientSecret,
+		}),
 	}
 
 	bio := score.DefaultBio()

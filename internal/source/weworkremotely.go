@@ -2,6 +2,7 @@ package source
 
 import (
 	"context"
+	"encoding/json"
 	"encoding/xml"
 	"fmt"
 	"time"
@@ -75,14 +76,16 @@ func (s *WWRSource) Poll(ctx context.Context, since time.Time) ([]RawPost, error
 			continue
 		}
 
+		rawItem, _ := json.Marshal(item)
+
 		posts = append(posts, RawPost{
-			Source:      s.Name(),
-			ExternalID:  guid,
-			URL:         item.Link,
-			Title:       item.Title,
-			Author:      "WeWorkRemotely",
-			Body:        stripHTML(item.Description),
-			PublishedAt: pubTime,
+			ExternalID: guid,
+			URL:        item.Link,
+			Title:      item.Title,
+			Author:     "WeWorkRemotely",
+			Body:       stripHTML(item.Description),
+			PostedAt:   pubTime,
+			Raw:        rawItem,
 		})
 	}
 

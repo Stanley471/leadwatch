@@ -55,7 +55,6 @@ func (s *RemoteOKSource) Poll(ctx context.Context, since time.Time) ([]RawPost, 
 
 	var posts []RawPost
 	for _, item := range items {
-		// First item is often legal disclaimer / metadata with no id
 		if item.ID == "" || item.Position == "" {
 			continue
 		}
@@ -81,14 +80,16 @@ func (s *RemoteOKSource) Poll(ctx context.Context, since time.Time) ([]RawPost, 
 		body := stripHTML(item.Description)
 		title := fmt.Sprintf("%s at %s", item.Position, item.Company)
 
+		rawItem, _ := json.Marshal(item)
+
 		posts = append(posts, RawPost{
-			Source:      s.Name(),
-			ExternalID:  item.ID,
-			URL:         itemURL,
-			Title:       title,
-			Author:      item.Company,
-			Body:        body,
-			PublishedAt: pubTime,
+			ExternalID: item.ID,
+			URL:        itemURL,
+			Title:      title,
+			Author:     item.Company,
+			Body:       body,
+			PostedAt:   pubTime,
+			Raw:        rawItem,
 		})
 	}
 

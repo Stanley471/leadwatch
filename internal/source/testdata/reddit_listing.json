@@ -1,0 +1,33 @@
+{
+  "kind": "Listing",
+  "data": {
+    "children": [
+      {
+        "kind": "t3",
+        "data": {
+          "id": "abc1",
+          "name": "t3_abc1",
+          "title": "[Hiring] Senior React & Go Developer for MVP",
+          "author": "client_dev",
+          "selftext": "We need a fullstack web developer immediately. Good hourly rate.",
+          "permalink": "/r/forhire/comments/abc1/hiring_senior_react_go_developer/",
+          "created_utc": 1731000000,
+          "subreddit": "forhire"
+        }
+      },
+      {
+        "kind": "t3",
+        "data": {
+          "id": "abc2",
+          "name": "t3_abc2",
+          "title": "[For Hire] Graphic designer available",
+          "author": "designer_person",
+          "selftext": "Portfolio link inside.",
+          "permalink": "/r/forhire/comments/abc2/for_hire_graphic_designer/",
+          "created_utc": 1731000100,
+          "subreddit": "forhire"
+        }
+      }
+    ]
+  }
+}

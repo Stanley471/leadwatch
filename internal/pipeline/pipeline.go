@@ -90,13 +90,13 @@ func (p *Pipeline) StagePoll(ctx context.Context) error {
 		inserted := 0
 		for _, raw := range posts {
 			post := &store.Post{
-				Source:      raw.Source,
+				Source:      src.Name(),
 				ExternalID:  raw.ExternalID,
 				URL:         raw.URL,
 				Title:       raw.Title,
 				Author:      raw.Author,
 				Body:        raw.Body,
-				PublishedAt: raw.PublishedAt,
+				PublishedAt: raw.PostedAt,
 				Status:      store.StatusRaw,
 			}
 			ok, err := p.store.UpsertRaw(ctx, post)

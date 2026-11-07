@@ -4,18 +4,9 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
-	"html"
-	"regexp"
 	"strconv"
 	"time"
 )
-
-var tagRegex = regexp.MustCompile("<[^>]*>")
-
-func stripHTML(input string) string {
-	cleaned := tagRegex.ReplaceAllString(input, "")
-	return html.UnescapeString(cleaned)
-}
 
 type HNSource struct {
 	client  *Client
@@ -63,7 +54,6 @@ func (s *HNSource) Poll(ctx context.Context, since time.Time) ([]RawPost, error)
 	}
 
 	var posts []RawPost
-	// Limit to top 30 recent jobs to avoid excessive requests
 	maxJobs := 30
 	if len(ids) < maxJobs {
 		maxJobs = len(ids)
@@ -93,13 +83,13 @@ func (s *HNSource) Poll(ctx context.Context, since time.Time) ([]RawPost, error)
 		}
 
 		posts = append(posts, RawPost{
-			Source:      s.Name(),
-			ExternalID:  strconv.FormatInt(item.ID, 10),
-			URL:         postURL,
-			Title:       item.Title,
-			Author:      item.By,
-			Body:        stripHTML(item.Text),
-			PublishedAt: pubTime,
+			ExternalID: strconv.FormatInt(item.ID, 10),
+			URL:        postURL,
+			Title:      item.Title,
+			Author:     item.By,
+			Body:       stripHTML(item.Text),
+			PostedAt:   pubTime,
+			Raw:        itemData,
 		})
 	}
 

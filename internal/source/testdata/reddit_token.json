@@ -1,0 +1,6 @@
+{
+  "access_token": "test_mock_token_12345",
+  "token_type": "bearer",
+  "expires_in": 3600,
+  "scope": "*"
+}
