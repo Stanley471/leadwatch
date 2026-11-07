@@ -106,6 +106,7 @@ func runPoll(ctx context.Context, cfg *config.Config, args []string) {
 	client := source.NewClient(nil)
 	sources := []source.Source{
 		source.NewHNSource(client),
+		source.NewHNFreelancerSource(client),
 		source.NewRemoteOKSource(client),
 		source.NewWWRSource(client),
 		source.NewRedditSource(client, source.RedditConfig{
@@ -141,6 +142,7 @@ func runDaemon(ctx context.Context, cfg *config.Config, args []string) {
 	client := source.NewClient(nil)
 	sources := []source.Source{
 		source.NewHNSource(client),
+		source.NewHNFreelancerSource(client),
 		source.NewRemoteOKSource(client),
 		source.NewWWRSource(client),
 		source.NewRedditSource(client, source.RedditConfig{

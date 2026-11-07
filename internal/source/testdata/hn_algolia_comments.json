@@ -1,0 +1,28 @@
+{
+  "hits": [
+    {
+      "objectID": "42000010",
+      "author": "tech_recruiter",
+      "story_id": 42000001,
+      "parent_id": 42000001,
+      "created_at_i": 1793546000,
+      "comment_text": "<p>SEEKING FREELANCER | Remote | Go &amp; React</p><p>We need a contractor to build our SaaS MVP. See <a href=\"https://example.com/apply\">our job post</a> for details.</p>"
+    },
+    {
+      "objectID": "42000011",
+      "author": "nested_user",
+      "story_id": 42000001,
+      "parent_id": 42000010,
+      "created_at_i": 1793546100,
+      "comment_text": "<p>Emailed you!</p>"
+    },
+    {
+      "objectID": "42000012",
+      "author": "dev_candidate",
+      "story_id": 42000001,
+      "parent_id": 42000001,
+      "created_at_i": 1793546200,
+      "comment_text": "<p>SEEKING WORK | Fullstack Developer | <a href=\"https://portfolio.dev\">https://portfolio.dev</a></p>"
+    }
+  ]
+}
