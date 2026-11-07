@@ -4,13 +4,12 @@ import (
 	"context"
 	"testing"
 
-	"leadwatch/internal/config"
 	"leadwatch/internal/score"
 	"leadwatch/internal/store"
 )
 
 func TestScorer(t *testing.T) {
-	bio := config.DeveloperBio{
+	bio := score.DeveloperBio{
 		Skills:   []string{"Go", "React", "TypeScript"},
 		MinScore: 50,
 	}

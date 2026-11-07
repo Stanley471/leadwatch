@@ -1,3 +1,13 @@
+# Environment files
+.env
+*.env
+
+# SQLite databases
+*.db
+*.db-journal
+*.db-wal
+*.db-shm
+
 # Binaries
 *.exe
 *.exe~
@@ -6,13 +16,7 @@
 *.dylib
 /leadwatch
 
-# Database & SQLite files
-*.db
-*.db-journal
-*.db-wal
-*.db-shm
-
-# OS & IDE
+# IDEs & OS
 .DS_Store
 Thumbs.db
 .vscode/

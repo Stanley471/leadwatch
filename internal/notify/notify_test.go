@@ -27,10 +27,9 @@ func TestNotifier(t *testing.T) {
 	}))
 	defer server.Close()
 
-	cfg := config.TelegramConfig{
-		Enabled:  true,
-		BotToken: "TEST_TOKEN",
-		ChatID:   123456789,
+	cfg := &config.Config{
+		TelegramBotToken: "TEST_TOKEN",
+		TelegramChatID:   123456789,
 	}
 
 	n := notify.New(cfg, server.Client())

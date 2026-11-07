@@ -13,12 +13,12 @@ import (
 )
 
 type Notifier struct {
-	cfg    config.TelegramConfig
+	cfg    *config.Config
 	client *source.Client
 	apiURL string
 }
 
-func New(cfg config.TelegramConfig, httpClient *http.Client) *Notifier {
+func New(cfg *config.Config, httpClient *http.Client) *Notifier {
 	return &Notifier{
 		cfg:    cfg,
 		client: source.NewClient(httpClient),
@@ -40,11 +40,11 @@ type telegramSendMessageReq struct {
 // Reminder: This ONLY alerts the owner on Telegram about the lead and draft.
 // It NEVER sends messages automatically to leads or public sources.
 func (n *Notifier) NotifyAlert(ctx context.Context, p *store.Post) error {
-	if !n.cfg.Enabled || n.cfg.BotToken == "" || n.cfg.ChatID == 0 {
-		return nil
+	if err := n.cfg.ValidateTelegram(); err != nil {
+		return err
 	}
 
-	url := fmt.Sprintf("%s/bot%s/sendMessage", n.apiURL, n.cfg.BotToken)
+	url := fmt.Sprintf("%s/bot%s/sendMessage", n.apiURL, n.cfg.TelegramBotToken)
 
 	msgText := fmt.Sprintf(
 		"🚨 *New High-Scoring Web Dev Lead* (Score: %d/100)\n\n"+
@@ -64,7 +64,7 @@ func (n *Notifier) NotifyAlert(ctx context.Context, p *store.Post) error {
 	)
 
 	payload := telegramSendMessageReq{
-		ChatID:    n.cfg.ChatID,
+		ChatID:    n.cfg.TelegramChatID,
 		Text:      msgText,
 		ParseMode: "Markdown",
 	}
@@ -94,7 +94,6 @@ func (n *Notifier) NotifyAlert(ctx context.Context, p *store.Post) error {
 }
 
 func escapeMarkdown(s string) string {
-	// Simple escape for Telegram Markdown mode
 	var out []rune
 	for _, r := range s {
 		switch r {

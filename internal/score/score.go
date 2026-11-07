@@ -5,15 +5,32 @@ import (
 	"fmt"
 	"strings"
 
-	"leadwatch/internal/config"
 	"leadwatch/internal/store"
 )
 
-type Scorer struct {
-	bio config.DeveloperBio
+type DeveloperBio struct {
+	Name      string
+	Title     string
+	Skills    []string
+	Portfolio string
+	MinScore  int
 }
 
-func New(bio config.DeveloperBio) *Scorer {
+type Scorer struct {
+	bio DeveloperBio
+}
+
+func DefaultBio() DeveloperBio {
+	return DeveloperBio{
+		Name:      "Leadwatch User",
+		Title:     "Full-stack Web Developer",
+		Skills:    []string{"Go", "React", "TypeScript", "Node.js", "PostgreSQL", "Next.js", "TailwindCSS"},
+		Portfolio: "https://example.com",
+		MinScore:  50,
+	}
+}
+
+func New(bio DeveloperBio) *Scorer {
 	return &Scorer{bio: bio}
 }
 
@@ -32,7 +49,6 @@ func (s *Scorer) Score(ctx context.Context, p *store.Post) ScoreResult {
 	totalScore := 20 // baseline for valid hiring lead
 	reasons := []string{"baseline(+20)"}
 
-	// 1. Skill Matches (up to +50 points)
 	matchedSkills := 0
 	for _, skill := range s.bio.Skills {
 		lowerSkill := strings.ToLower(skill)
@@ -48,7 +64,6 @@ func (s *Scorer) Score(ctx context.Context, p *store.Post) ScoreResult {
 		reasons = append(reasons, fmt.Sprintf("skills_matched:%d", matchedSkills))
 	}
 
-	// 2. High-value terms (+15 points)
 	highValueTerms := []string{"contract", "freelance", "remote", "immediate", "urgent", "budget", "$"}
 	highValueCount := 0
 	for _, term := range highValueTerms {
@@ -65,7 +80,6 @@ func (s *Scorer) Score(ctx context.Context, p *store.Post) ScoreResult {
 		reasons = append(reasons, fmt.Sprintf("high_value_terms(+%d)", bonus))
 	}
 
-	// 3. Negative / Unfavorable filters (-20 points)
 	lowValueTerms := []string{"unpaid", "equity only", "intern", "junior only", "no budget"}
 	for _, term := range lowValueTerms {
 		if strings.Contains(text, term) {
@@ -74,7 +88,6 @@ func (s *Scorer) Score(ctx context.Context, p *store.Post) ScoreResult {
 		}
 	}
 
-	// 4. Confidence scaling
 	if p.Confidence > 0 {
 		scaled := float64(totalScore) * p.Confidence
 		totalScore = int(scaled)

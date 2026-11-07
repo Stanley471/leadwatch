@@ -5,24 +5,23 @@ import (
 	"fmt"
 	"strings"
 
-	"leadwatch/internal/config"
+	"leadwatch/internal/score"
 	"leadwatch/internal/store"
 )
 
 type Drafter struct {
-	bio config.DeveloperBio
+	bio score.DeveloperBio
 }
 
-func New(bio config.DeveloperBio) *Drafter {
+func New(bio score.DeveloperBio) *Drafter {
 	return &Drafter{bio: bio}
 }
 
-// Draft prepares a personalized, tailored proposal response for review.
+// Draft prepares a personalized proposal response for human review.
 // It NEVER sends messages automatically.
 func (d *Drafter) Draft(ctx context.Context, p *store.Post) string {
 	text := strings.ToLower(p.Title + " " + p.Body)
 
-	// Identify relevant skills to highlight
 	var highlighted []string
 	for _, skill := range d.bio.Skills {
 		if strings.Contains(text, strings.ToLower(skill)) {

@@ -13,87 +13,174 @@ import (
 	"leadwatch/internal/notify"
 	"leadwatch/internal/pipeline"
 	"leadwatch/internal/scheduler"
+	"leadwatch/internal/score"
 	"leadwatch/internal/source"
 	"leadwatch/internal/store"
 )
 
 func main() {
-	configPath := flag.String("config", "leadwatch.json", "path to config file")
-	once := flag.Bool("once", false, "run one pipeline cycle and exit")
-	listLeads := flag.Bool("list", false, "list discovered high-scoring leads and exit")
-	minScore := flag.Int("min-score", 50, "minimum score filter for listing leads")
-	flag.Parse()
+	if len(os.Args) < 2 {
+		printUsage()
+		os.Exit(1)
+	}
 
-	// Configure structured logger
-	logger := slog.New(slog.NewTextHandler(os.Stdout, &slog.HandlerOptions{
-		Level: slog.LevelInfo,
+	subcommand := os.Args[1]
+
+	cfg, err := config.LoadFromEnv()
+	if err != nil {
+		fmt.Fprintf(os.Stderr, "failed to load configuration: %v\n", err)
+		os.Exit(1)
+	}
+
+	// Slog JSON logging
+	logger := slog.New(slog.NewJSONHandler(os.Stdout, &slog.HandlerOptions{
+		Level: cfg.LogLevel,
 	}))
 	slog.SetDefault(logger)
-
-	cfg, err := config.LoadConfig(*configPath)
-	if err != nil {
-		slog.Error("Failed to load config", "err", err)
-		os.Exit(1)
-	}
-
-	st, err := store.Open(cfg.DatabasePath)
-	if err != nil {
-		slog.Error("Failed to open database", "err", err)
-		os.Exit(1)
-	}
-	defer st.Close()
 
 	ctx, cancel := signal.NotifyContext(context.Background(), os.Interrupt, syscall.SIGTERM)
 	defer cancel()
 
-	if *listLeads {
-		leads, err := st.ListLatestLeads(ctx, *minScore, 50)
-		if err != nil {
-			slog.Error("Failed to query leads", "err", err)
-			os.Exit(1)
-		}
-		fmt.Printf("=== DISCOVERED LEADS (Min Score: %d) ===\n", *minScore)
-		for _, l := range leads {
-			fmt.Printf("\n[%d] (Score: %d) %s\n", l.ID, l.Score, l.Title)
-			fmt.Printf("Source: %s | URL: %s\n", l.Source, l.URL)
-			fmt.Printf("Reason: %s\n", l.ScoreReason)
-			if l.DraftReply != "" {
-				fmt.Printf("Draft reply:\n%s\n", l.DraftReply)
-			}
-			fmt.Println("-------------------------------------------")
-		}
-		return
+	switch subcommand {
+	case "migrate":
+		runMigrate(ctx, cfg, os.Args[2:])
+	case "poll":
+		runPoll(ctx, cfg, os.Args[2:])
+	case "run":
+		runDaemon(ctx, cfg, os.Args[2:])
+	case "leads":
+		runLeads(ctx, cfg, os.Args[2:])
+	case "-h", "--help", "help":
+		printUsage()
+	default:
+		slog.Error("unknown subcommand", "subcommand", subcommand)
+		printUsage()
+		os.Exit(1)
 	}
+}
 
-	// Register sources
-	var sources []source.Source
+func printUsage() {
+	fmt.Println(`leadwatch - monitor public sources for web developer hiring opportunities
+
+Usage:
+  leadwatch <subcommand> [flags]
+
+Subcommands:
+  migrate    Initialize or apply migrations to the SQLite database
+  poll       Run a single ingestion and pipeline cycle then exit
+  run        Start leadwatch background daemon loop
+  leads      List discovered high-scoring leads
+
+Run 'leadwatch <subcommand> -h' for subcommand options.`)
+}
+
+func runMigrate(ctx context.Context, cfg *config.Config, args []string) {
+	fs := flag.NewFlagSet("migrate", flag.ExitOnError)
+	dbPath := fs.String("db", cfg.DBPath, "path to sqlite database")
+	_ = fs.Parse(args)
+
+	slog.Info("running sqlite database migration", "db_path", *dbPath)
+	st, err := store.Open(*dbPath)
+	if err != nil {
+		slog.Error("migration failed", "err", err)
+		os.Exit(1)
+	}
+	defer st.Close()
+
+	slog.Info("database migration completed successfully", "db_path", *dbPath)
+}
+
+func runPoll(ctx context.Context, cfg *config.Config, args []string) {
+	fs := flag.NewFlagSet("poll", flag.ExitOnError)
+	dbPath := fs.String("db", cfg.DBPath, "path to sqlite database")
+	_ = fs.Parse(args)
+
+	slog.Info("running single poll cycle", "db_path", *dbPath)
+	st, err := store.Open(*dbPath)
+	if err != nil {
+		slog.Error("failed to open database", "err", err)
+		os.Exit(1)
+	}
+	defer st.Close()
+
 	client := source.NewClient(nil)
-	if cfg.Sources.HackerNewsJobs {
-		sources = append(sources, source.NewHNSource(client))
-	}
-	if cfg.Sources.RemoteOK {
-		sources = append(sources, source.NewRemoteOKSource(client))
-	}
-	if cfg.Sources.WWR {
-		sources = append(sources, source.NewWWRSource(client))
+	sources := []source.Source{
+		source.NewHNSource(client),
+		source.NewRemoteOKSource(client),
+		source.NewWWRSource(client),
 	}
 
-	notifier := notify.New(cfg.Telegram, nil)
-	pipe := pipeline.New(cfg, st, sources, notifier)
+	bio := score.DefaultBio()
+	notifier := notify.New(cfg, nil)
+	pipe := pipeline.New(cfg, st, sources, bio, notifier)
 
-	if *once {
-		slog.Info("Running single cycle mode")
-		if err := pipe.RunCycle(ctx); err != nil {
-			slog.Error("Pipeline cycle failed", "err", err)
-			os.Exit(1)
-		}
-		slog.Info("Cycle completed successfully")
-		return
+	if err := pipe.RunCycle(ctx); err != nil {
+		slog.Error("poll cycle failed", "err", err)
+		os.Exit(1)
 	}
+	slog.Info("single poll cycle finished")
+}
+
+func runDaemon(ctx context.Context, cfg *config.Config, args []string) {
+	fs := flag.NewFlagSet("run", flag.ExitOnError)
+	dbPath := fs.String("db", cfg.DBPath, "path to sqlite database")
+	_ = fs.Parse(args)
+
+	slog.Info("starting leadwatch daemon", "db_path", *dbPath, "poll_interval", cfg.PollInterval.String())
+	st, err := store.Open(*dbPath)
+	if err != nil {
+		slog.Error("failed to open database", "err", err)
+		os.Exit(1)
+	}
+	defer st.Close()
+
+	client := source.NewClient(nil)
+	sources := []source.Source{
+		source.NewHNSource(client),
+		source.NewRemoteOKSource(client),
+		source.NewWWRSource(client),
+	}
+
+	bio := score.DefaultBio()
+	notifier := notify.New(cfg, nil)
+	pipe := pipeline.New(cfg, st, sources, bio, notifier)
 
 	sched := scheduler.New(pipe, cfg.PollInterval)
 	if err := sched.Start(ctx); err != nil && err != context.Canceled {
-		slog.Error("Scheduler stopped with error", "err", err)
+		slog.Error("daemon terminated with error", "err", err)
 		os.Exit(1)
+	}
+	slog.Info("daemon shutdown gracefully")
+}
+
+func runLeads(ctx context.Context, cfg *config.Config, args []string) {
+	fs := flag.NewFlagSet("leads", flag.ExitOnError)
+	dbPath := fs.String("db", cfg.DBPath, "path to sqlite database")
+	minScore := fs.Int("min-score", 50, "minimum score threshold")
+	limit := fs.Int("limit", 50, "maximum leads to return")
+	_ = fs.Parse(args)
+
+	st, err := store.Open(*dbPath)
+	if err != nil {
+		slog.Error("failed to open database", "err", err)
+		os.Exit(1)
+	}
+	defer st.Close()
+
+	leads, err := st.ListLatestLeads(ctx, *minScore, *limit)
+	if err != nil {
+		slog.Error("failed to query leads", "err", err)
+		os.Exit(1)
+	}
+
+	fmt.Printf("=== DISCOVERED LEADS (Min Score: %d, Found: %d) ===\n", *minScore, len(leads))
+	for _, l := range leads {
+		fmt.Printf("\n[%d] (Score: %d) %s\n", l.ID, l.Score, l.Title)
+		fmt.Printf("Source: %s | URL: %s\n", l.Source, l.URL)
+		fmt.Printf("Reason: %s\n", l.ScoreReason)
+		if l.DraftReply != "" {
+			fmt.Printf("Draft reply:\n%s\n", l.DraftReply)
+		}
+		fmt.Println("-------------------------------------------")
 	}
 }

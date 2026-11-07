@@ -5,13 +5,13 @@ import (
 	"strings"
 	"testing"
 
-	"leadwatch/internal/config"
 	"leadwatch/internal/draft"
+	"leadwatch/internal/score"
 	"leadwatch/internal/store"
 )
 
 func TestDrafter(t *testing.T) {
-	bio := config.DeveloperBio{
+	bio := score.DeveloperBio{
 		Name:      "Jane Doe",
 		Title:     "Senior Fullstack Engineer",
 		Skills:    []string{"Go", "React", "PostgreSQL"},
