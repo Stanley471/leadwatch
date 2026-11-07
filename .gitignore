@@ -1,0 +1,19 @@
+# Binaries
+*.exe
+*.exe~
+*.dll
+*.so
+*.dylib
+/leadwatch
+
+# Database & SQLite files
+*.db
+*.db-journal
+*.db-wal
+*.db-shm
+
+# OS & IDE
+.DS_Store
+Thumbs.db
+.vscode/
+.idea/
