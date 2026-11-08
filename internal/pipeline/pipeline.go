@@ -144,7 +144,7 @@ func New(
 		store:      st,
 		sources:    sources,
 		classifier: c,
-		scorer:     score.New(bio),
+		scorer:     score.New(score.DefaultProfile()),
 		drafter:    draft.New(bio),
 		notifier:   notifier,
 	}
@@ -340,11 +340,16 @@ func (p *Pipeline) ProcessDownstream(ctx context.Context) error {
 		return fmt.Errorf("fetching classified posts: %w", err)
 	}
 
+	now := time.Now().UTC()
 	for _, post := range classifiedPosts {
 		if ctx.Err() != nil {
 			return ctx.Err()
 		}
-		res := p.scorer.Score(ctx, post)
+
+		classRec, _ := p.store.GetDetailedClassification(ctx, post.ID)
+		res := p.scorer.ScorePost(post, classRec, now)
+
+		// Posts below the floor are stored in the DB, but ignored for drafting/alerting
 		status := store.StatusScored
 		if res.Score < 50 {
 			status = store.StatusIgnored
@@ -367,22 +372,10 @@ func (p *Pipeline) ProcessDownstream(ctx context.Context) error {
 	}
 
 	// 5. Stage Notify (processes "drafted" posts, alerts owner on Telegram)
-	draftedPosts, err := p.store.GetPostsByStatus(ctx, store.StatusDrafted, 50)
-	if err != nil {
-		return fmt.Errorf("fetching drafted posts: %w", err)
-	}
-
-	for _, post := range draftedPosts {
-		if ctx.Err() != nil {
-			return ctx.Err()
+	if p.notifier != nil {
+		if _, err := notify.ProcessAlerts(ctx, p.store, p.notifier, 50, 50); err != nil {
+			slog.Error("error during ProcessAlerts", "err", err)
 		}
-		if p.notifier != nil {
-			if err := p.notifier.NotifyAlert(ctx, post); err != nil {
-				slog.Error("failed to send telegram notification", "id", post.ID, "err", err)
-				continue
-			}
-		}
-		_ = p.store.MarkNotified(ctx, post.ID, time.Now().UTC(), store.StatusNotified)
 	}
 
 	return nil
