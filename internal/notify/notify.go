@@ -153,19 +153,35 @@ func extractTwoLineSummary(title, body string) string {
 }
 
 // NotifyAlert sends a formatted HTML alert to the Telegram bot with exponential backoff on 429/5xx.
+// If an outreach draft is available, it sends the proposal draft as a second message.
 // Failures log and return an error without blocking or panicking the caller.
-func (n *Notifier) NotifyAlert(ctx context.Context, post *store.Post, classification *store.ClassificationRecord) error {
+func (n *Notifier) NotifyAlert(ctx context.Context, post *store.Post, classification *store.ClassificationRecord, draftReply string) error {
 	if err := n.cfg.ValidateTelegram(); err != nil {
 		return err
 	}
 
 	msgHTML := FormatAlert(post, classification, time.Now().UTC())
+	if err := n.sendTelegramMessage(ctx, msgHTML); err != nil {
+		return err
+	}
 
+	// Send draft reply as a second message if present
+	if strings.TrimSpace(draftReply) != "" {
+		draftHTML := fmt.Sprintf("📝 <b>Drafted Reply (For Manual Review):</b>\n\n<pre>%s</pre>", html.EscapeString(draftReply))
+		if err := n.sendTelegramMessage(ctx, draftHTML); err != nil {
+			slog.Warn("failed to send second telegram draft message", "post_id", post.ID, "err", err)
+		}
+	}
+
+	return nil
+}
+
+func (n *Notifier) sendTelegramMessage(ctx context.Context, textHTML string) error {
 	url := fmt.Sprintf("%s/bot%s/sendMessage", n.apiURL, n.cfg.TelegramBotToken)
 
 	payload := telegramSendMessageReq{
 		ChatID:    n.cfg.TelegramChatID,
-		Text:      msgHTML,
+		Text:      textHTML,
 		ParseMode: "HTML",
 	}
 
@@ -274,8 +290,14 @@ func ProcessAlerts(ctx context.Context, st *store.Store, notifier *Notifier, min
 			slog.Error("failed to retrieve detailed classification for alert", "id", p.ID, "err", err)
 		}
 
+		outreach, _ := st.GetOutreach(ctx, p.ID)
+		draftText := p.DraftReply
+		if outreach != nil && outreach.DraftReply != "" {
+			draftText = outreach.DraftReply
+		}
+
 		if notifier != nil {
-			if err := notifier.NotifyAlert(ctx, p, classRec); err != nil {
+			if err := notifier.NotifyAlert(ctx, p, classRec, draftText); err != nil {
 				slog.Error("failed to send telegram alert for lead", "id", p.ID, "err", err)
 				// Backoff failure without stopping other leads or blocking pipeline
 				continue

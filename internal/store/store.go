@@ -125,6 +125,34 @@ func (s *Store) migrate(ctx context.Context) error {
 		created_at TIMESTAMP NOT NULL,
 		FOREIGN KEY(post_id) REFERENCES posts(id) ON DELETE CASCADE
 	);
+
+	CREATE TABLE IF NOT EXISTS outreach (
+		id INTEGER PRIMARY KEY AUTOINCREMENT,
+		post_id INTEGER NOT NULL UNIQUE,
+		channel TEXT NOT NULL,
+		draft_reply TEXT NOT NULL,
+		status TEXT NOT NULL DEFAULT 'drafted',
+		follow_up_due TIMESTAMP,
+		created_at TIMESTAMP NOT NULL,
+		updated_at TIMESTAMP NOT NULL,
+		FOREIGN KEY(post_id) REFERENCES posts(id) ON DELETE CASCADE
+	);
+
+	CREATE TABLE IF NOT EXISTS portfolio (
+		id INTEGER PRIMARY KEY AUTOINCREMENT,
+		title TEXT NOT NULL,
+		url TEXT NOT NULL,
+		description TEXT NOT NULL,
+		tags TEXT NOT NULL
+	);
+
+	CREATE TABLE IF NOT EXISTS profile_settings (
+		id INTEGER PRIMARY KEY CHECK (id = 1),
+		services TEXT NOT NULL,
+		rate_floor REAL NOT NULL,
+		location TEXT NOT NULL,
+		tone TEXT NOT NULL
+	);
 	`
 	_, err := s.db.ExecContext(ctx, schema)
 	return err
@@ -295,7 +323,236 @@ func (s *Store) SaveDetailedClassification(ctx context.Context, rec Classificati
 	return err
 }
 
-// SaveClassification provides a compatibility wrapper for saving basic classification summary.
+// PortfolioItem represents an authentic completed project used in proposals.
+type PortfolioItem struct {
+	ID          int64  `json:"id"`
+	Title       string `json:"title"`
+	URL         string `json:"url"`
+	Description string `json:"description"`
+	Tags        string `json:"tags"` // comma-separated tags
+}
+
+// ProfileConfig represents developer profile settings.
+type ProfileConfig struct {
+	Services  string  `json:"services"`
+	RateFloor float64 `json:"rate_floor"`
+	Location  string  `json:"location"`
+	Tone      string  `json:"tone"`
+}
+
+// OutreachRecord tracks communication state with leads.
+type OutreachRecord struct {
+	ID          int64      `json:"id"`
+	PostID      int64      `json:"post_id"`
+	Channel     string     `json:"channel"`
+	DraftReply  string     `json:"draft_reply"`
+	Status      string     `json:"status"` // drafted, contacted, replied, won, lost, ignored
+	FollowUpDue *time.Time `json:"follow_up_due,omitempty"`
+	CreatedAt   time.Time  `json:"created_at"`
+	UpdatedAt   time.Time  `json:"updated_at"`
+}
+
+func (s *Store) SaveOutreachDraft(ctx context.Context, postID int64, channel, draft string) error {
+	now := time.Now().UTC()
+	query := `
+	INSERT INTO outreach (post_id, channel, draft_reply, status, created_at, updated_at)
+	VALUES (?, ?, ?, 'drafted', ?, ?)
+	ON CONFLICT(post_id) DO UPDATE SET
+		channel = excluded.channel,
+		draft_reply = excluded.draft_reply,
+		updated_at = excluded.updated_at;
+	`
+	_, err := s.db.ExecContext(ctx, query, postID, channel, draft, now, now)
+	return err
+}
+
+func (s *Store) GetOutreach(ctx context.Context, postID int64) (*OutreachRecord, error) {
+	query := `
+	SELECT id, post_id, channel, draft_reply, status, follow_up_due, created_at, updated_at
+	FROM outreach
+	WHERE post_id = ?;
+	`
+	var o OutreachRecord
+	var followUp sql.NullTime
+	err := s.db.QueryRowContext(ctx, query, postID).Scan(
+		&o.ID, &o.PostID, &o.Channel, &o.DraftReply, &o.Status, &followUp, &o.CreatedAt, &o.UpdatedAt,
+	)
+	if err == sql.ErrNoRows {
+		return nil, nil
+	}
+	if err != nil {
+		return nil, err
+	}
+	if followUp.Valid {
+		o.FollowUpDue = &followUp.Time
+	}
+	return &o, nil
+}
+
+func (s *Store) MarkOutreachStatus(ctx context.Context, postID int64, status string) error {
+	now := time.Now().UTC()
+	var followUp *time.Time
+	if status == "contacted" {
+		t := now.Add(3 * 24 * time.Hour)
+		followUp = &t
+	}
+
+	query := `
+	UPDATE outreach
+	SET status = ?, follow_up_due = ?, updated_at = ?
+	WHERE post_id = ?;
+	`
+	res, err := s.db.ExecContext(ctx, query, status, followUp, now, postID)
+	if err != nil {
+		return err
+	}
+	rows, err := res.RowsAffected()
+	if err != nil {
+		return err
+	}
+	if rows == 0 {
+		// Insert outreach if didn't exist
+		insQuery := `
+		INSERT INTO outreach (post_id, channel, draft_reply, status, follow_up_due, created_at, updated_at)
+		VALUES (?, 'direct', '', ?, ?, ?, ?);
+		`
+		_, err = s.db.ExecContext(ctx, insQuery, postID, status, followUp, now, now)
+	}
+	return err
+}
+
+func (s *Store) AddPortfolioItem(ctx context.Context, item PortfolioItem) error {
+	query := `
+	INSERT INTO portfolio (title, url, description, tags)
+	VALUES (?, ?, ?, ?);
+	`
+	_, err := s.db.ExecContext(ctx, query, item.Title, item.URL, item.Description, item.Tags)
+	return err
+}
+
+func (s *Store) ListPortfolioItems(ctx context.Context) ([]PortfolioItem, error) {
+	rows, err := s.db.QueryContext(ctx, "SELECT id, title, url, description, tags FROM portfolio")
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+
+	var items []PortfolioItem
+	for rows.Next() {
+		var it PortfolioItem
+		if err := rows.Scan(&it.ID, &it.Title, &it.URL, &it.Description, &it.Tags); err != nil {
+			return nil, err
+		}
+		items = append(items, it)
+	}
+	return items, rows.Err()
+}
+
+func (s *Store) SetProfileSettings(ctx context.Context, p ProfileConfig) error {
+	query := `
+	INSERT INTO profile_settings (id, services, rate_floor, location, tone)
+	VALUES (1, ?, ?, ?, ?)
+	ON CONFLICT(id) DO UPDATE SET
+		services = excluded.services,
+		rate_floor = excluded.rate_floor,
+		location = excluded.location,
+		tone = excluded.tone;
+	`
+	_, err := s.db.ExecContext(ctx, query, p.Services, p.RateFloor, p.Location, p.Tone)
+	return err
+}
+
+func (s *Store) GetProfileSettings(ctx context.Context) (*ProfileConfig, error) {
+	query := "SELECT services, rate_floor, location, tone FROM profile_settings WHERE id = 1"
+	var p ProfileConfig
+	err := s.db.QueryRowContext(ctx, query).Scan(&p.Services, &p.RateFloor, &p.Location, &p.Tone)
+	if err == sql.ErrNoRows {
+		return &ProfileConfig{
+			Services:  "web_app, ecommerce, landing_site, maintenance",
+			RateFloor: 500.0,
+			Location:  "remote, worldwide",
+			Tone:      "professional and concise",
+		}, nil
+	}
+	if err != nil {
+		return nil, err
+	}
+	return &p, nil
+}
+
+func (s *Store) GetPostByID(ctx context.Context, id int64) (*Post, error) {
+	query := `
+	SELECT id, source, external_id, url, title, author, body, published_at, created_at, status,
+	       is_hiring, category, confidence, score, score_reason, notified_at, draft_reply, drafted_at
+	FROM posts
+	WHERE id = ?;
+	`
+	var p Post
+	var notifiedAt, draftedAt sql.NullTime
+	err := s.db.QueryRowContext(ctx, query, id).Scan(
+		&p.ID, &p.Source, &p.ExternalID, &p.URL, &p.Title, &p.Author, &p.Body,
+		&p.PublishedAt, &p.CreatedAt, &p.Status,
+		&p.IsHiring, &p.Category, &p.Confidence, &p.Score, &p.ScoreReason,
+		&notifiedAt, &p.DraftReply, &draftedAt,
+	)
+	if err == sql.ErrNoRows {
+		return nil, nil
+	}
+	if err != nil {
+		return nil, err
+	}
+	if notifiedAt.Valid {
+		p.NotifiedAt = &notifiedAt.Time
+	}
+	if draftedAt.Valid {
+		p.DraftedAt = &draftedAt.Time
+	}
+	return &p, nil
+}
+
+func (s *Store) ListLeadsFiltered(ctx context.Context, status string, minScore int, limit int) ([]*Post, error) {
+	baseQuery := `
+	SELECT id, source, external_id, url, title, author, body, published_at, created_at, status,
+	       is_hiring, category, confidence, score, score_reason, notified_at, draft_reply, drafted_at
+	FROM posts
+	WHERE is_hiring = 1 AND score >= ?
+	`
+	args := []interface{}{minScore}
+	if status != "" && status != "all" {
+		baseQuery += " AND status = ?"
+		args = append(args, status)
+	}
+	baseQuery += " ORDER BY published_at DESC LIMIT ?"
+	args = append(args, limit)
+
+	rows, err := s.db.QueryContext(ctx, baseQuery, args...)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+
+	var posts []*Post
+	for rows.Next() {
+		var p Post
+		var notifiedAt, draftedAt sql.NullTime
+		if err := rows.Scan(
+			&p.ID, &p.Source, &p.ExternalID, &p.URL, &p.Title, &p.Author, &p.Body,
+			&p.PublishedAt, &p.CreatedAt, &p.Status,
+			&p.IsHiring, &p.Category, &p.Confidence, &p.Score, &p.ScoreReason,
+			&notifiedAt, &p.DraftReply, &draftedAt,
+		); err != nil {
+			return nil, err
+		}
+		if notifiedAt.Valid {
+			p.NotifiedAt = &notifiedAt.Time
+		}
+		if draftedAt.Valid {
+			p.DraftedAt = &draftedAt.Time
+		}
+		posts = append(posts, &p)
+	}
+	return posts, rows.Err()
+}
 func (s *Store) SaveClassification(ctx context.Context, id int64, isHiring bool, category string, confidence float64, newStatus Status) error {
 	query := `
 	UPDATE posts

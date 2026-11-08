@@ -85,7 +85,7 @@ func TestNotifier_NotifyAlert_Success(t *testing.T) {
 		PublishedAt: time.Now().UTC().Add(-30 * time.Minute),
 	}
 
-	if err := n.NotifyAlert(context.Background(), post, nil); err != nil {
+	if err := n.NotifyAlert(context.Background(), post, nil, "Hi Alex, here is the draft."); err != nil {
 		t.Fatalf("unexpected notify error: %v", err)
 	}
 
@@ -127,7 +127,7 @@ func TestNotifier_NotifyAlert_RateLimitRetry(t *testing.T) {
 		PublishedAt: time.Now().UTC(),
 	}
 
-	if err := n.NotifyAlert(context.Background(), post, nil); err != nil {
+	if err := n.NotifyAlert(context.Background(), post, nil, ""); err != nil {
 		t.Fatalf("expected successful alert after retry, got: %v", err)
 	}
 

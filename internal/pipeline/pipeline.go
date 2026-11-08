@@ -145,7 +145,7 @@ func New(
 		sources:    sources,
 		classifier: c,
 		scorer:     score.New(score.DefaultProfile()),
-		drafter:    draft.New(bio),
+		drafter:    draft.New(cfg.AnthropicAPIKey, cfg.DrafterModel, nil),
 		notifier:   notifier,
 	}
 }
@@ -357,18 +357,9 @@ func (p *Pipeline) ProcessDownstream(ctx context.Context) error {
 		_ = p.store.SaveScore(ctx, post.ID, res.Score, res.Reason, status)
 	}
 
-	// 4. Stage Draft (processes "scored" posts)
-	scoredPosts, err := p.store.GetPostsByStatus(ctx, store.StatusScored, 50)
-	if err != nil {
-		return fmt.Errorf("fetching scored posts: %w", err)
-	}
-
-	for _, post := range scoredPosts {
-		if ctx.Err() != nil {
-			return ctx.Err()
-		}
-		draftText := p.drafter.Draft(ctx, post)
-		_ = p.store.SaveDraft(ctx, post.ID, draftText, time.Now().UTC(), store.StatusDrafted)
+	// 4. Stage Draft (processes "scored" posts and generates targeted proposals)
+	if _, err := draft.ProcessDraftingBatch(ctx, p.store, p.drafter, 50); err != nil {
+		slog.Error("error during ProcessDraftingBatch", "err", err)
 	}
 
 	// 5. Stage Notify (processes "drafted" posts, alerts owner on Telegram)
