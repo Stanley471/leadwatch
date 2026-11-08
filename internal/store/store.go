@@ -107,6 +107,24 @@ func (s *Store) migrate(ctx context.Context) error {
 		name TEXT PRIMARY KEY,
 		last_polled_at TIMESTAMP NOT NULL
 	);
+
+	CREATE TABLE IF NOT EXISTS classifications (
+		id INTEGER PRIMARY KEY AUTOINCREMENT,
+		post_id INTEGER NOT NULL UNIQUE,
+		is_request BOOLEAN NOT NULL,
+		project_type TEXT NOT NULL,
+		budget_amount REAL,
+		budget_currency TEXT,
+		urgency TEXT NOT NULL,
+		remote_ok BOOLEAN,
+		location_note TEXT,
+		tech TEXT NOT NULL,
+		scam_score INTEGER NOT NULL,
+		confidence INTEGER NOT NULL,
+		reason TEXT NOT NULL,
+		created_at TIMESTAMP NOT NULL,
+		FOREIGN KEY(post_id) REFERENCES posts(id) ON DELETE CASCADE
+	);
 	`
 	_, err := s.db.ExecContext(ctx, schema)
 	return err
@@ -214,6 +232,70 @@ func (s *Store) UpdateStatus(ctx context.Context, id int64, status Status) error
 	return err
 }
 
+// ClassificationRecord stores detailed Anthropic Messages API classification output.
+type ClassificationRecord struct {
+	ID             int64
+	PostID         int64
+	IsRequest      bool
+	ProjectType    string
+	BudgetAmount   *float64
+	BudgetCurrency *string
+	Urgency        string
+	RemoteOK       *bool
+	LocationNote   *string
+	Tech           string
+	ScamScore      int
+	Confidence     int
+	Reason         string
+	CreatedAt      time.Time
+}
+
+// SaveDetailedClassification stores the classification details into the classifications table and updates post status.
+func (s *Store) SaveDetailedClassification(ctx context.Context, rec ClassificationRecord, postStatus Status) error {
+	now := time.Now().UTC()
+	if rec.CreatedAt.IsZero() {
+		rec.CreatedAt = now
+	}
+
+	query := `
+	INSERT INTO classifications (
+		post_id, is_request, project_type, budget_amount, budget_currency,
+		urgency, remote_ok, location_note, tech, scam_score, confidence, reason, created_at
+	) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+	ON CONFLICT(post_id) DO UPDATE SET
+		is_request = excluded.is_request,
+		project_type = excluded.project_type,
+		budget_amount = excluded.budget_amount,
+		budget_currency = excluded.budget_currency,
+		urgency = excluded.urgency,
+		remote_ok = excluded.remote_ok,
+		location_note = excluded.location_note,
+		tech = excluded.tech,
+		scam_score = excluded.scam_score,
+		confidence = excluded.confidence,
+		reason = excluded.reason,
+		created_at = excluded.created_at;
+	`
+	_, err := s.db.ExecContext(ctx, query,
+		rec.PostID, rec.IsRequest, rec.ProjectType, rec.BudgetAmount, rec.BudgetCurrency,
+		rec.Urgency, rec.RemoteOK, rec.LocationNote, rec.Tech, rec.ScamScore, rec.Confidence, rec.Reason, rec.CreatedAt,
+	)
+	if err != nil {
+		return fmt.Errorf("insert classification: %w", err)
+	}
+
+	// Also sync summary fields on the posts record and set status
+	updateQuery := `
+	UPDATE posts
+	SET is_hiring = ?, category = ?, confidence = ?, status = ?
+	WHERE id = ?;
+	`
+	confFloat := float64(rec.Confidence) / 100.0
+	_, err = s.db.ExecContext(ctx, updateQuery, rec.IsRequest, rec.ProjectType, confFloat, postStatus, rec.PostID)
+	return err
+}
+
+// SaveClassification provides a compatibility wrapper for saving basic classification summary.
 func (s *Store) SaveClassification(ctx context.Context, id int64, isHiring bool, category string, confidence float64, newStatus Status) error {
 	query := `
 	UPDATE posts
@@ -222,6 +304,45 @@ func (s *Store) SaveClassification(ctx context.Context, id int64, isHiring bool,
 	`
 	_, err := s.db.ExecContext(ctx, query, isHiring, category, confidence, newStatus, id)
 	return err
+}
+
+func (s *Store) GetDetailedClassification(ctx context.Context, postID int64) (*ClassificationRecord, error) {
+	query := `
+	SELECT id, post_id, is_request, project_type, budget_amount, budget_currency,
+	       urgency, remote_ok, location_note, tech, scam_score, confidence, reason, created_at
+	FROM classifications
+	WHERE post_id = ?;
+	`
+	var rec ClassificationRecord
+	var budgetAmount sql.NullFloat64
+	var budgetCurrency, locationNote sql.NullString
+	var remoteOK sql.NullBool
+
+	err := s.db.QueryRowContext(ctx, query, postID).Scan(
+		&rec.ID, &rec.PostID, &rec.IsRequest, &rec.ProjectType, &budgetAmount, &budgetCurrency,
+		&rec.Urgency, &remoteOK, &locationNote, &rec.Tech, &rec.ScamScore, &rec.Confidence, &rec.Reason, &rec.CreatedAt,
+	)
+	if err == sql.ErrNoRows {
+		return nil, nil
+	}
+	if err != nil {
+		return nil, err
+	}
+
+	if budgetAmount.Valid {
+		rec.BudgetAmount = &budgetAmount.Float64
+	}
+	if budgetCurrency.Valid {
+		rec.BudgetCurrency = &budgetCurrency.String
+	}
+	if locationNote.Valid {
+		rec.LocationNote = &locationNote.String
+	}
+	if remoteOK.Valid {
+		rec.RemoteOK = &remoteOK.Bool
+	}
+
+	return &rec, nil
 }
 
 func (s *Store) SaveScore(ctx context.Context, id int64, score int, reason string, newStatus Status) error {

@@ -1,0 +1,12 @@
+{
+  "id": "msg_01Normal",
+  "type": "message",
+  "role": "assistant",
+  "model": "claude-3-5-haiku-20241022",
+  "content": [
+    {
+      "type": "text",
+      "text": "{\n  \"is_request\": true,\n  \"project_type\": \"web_app\",\n  \"budget_amount\": 4500,\n  \"budget_currency\": \"USD\",\n  \"urgency\": \"high\",\n  \"remote_ok\": true,\n  \"location_note\": \"Remote worldwide\",\n  \"tech\": [\"Go\", \"React\", \"PostgreSQL\"],\n  \"scam_score\": 5,\n  \"confidence\": 95,\n  \"reason\": \"Legitimate company seeking contractor for web app build with explicit budget\"\n}"
+    }
+  ]
+}

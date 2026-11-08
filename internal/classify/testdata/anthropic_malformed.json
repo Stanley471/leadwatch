@@ -1,0 +1,12 @@
+{
+  "id": "msg_03Invalid",
+  "type": "message",
+  "role": "assistant",
+  "model": "claude-3-5-haiku-20241022",
+  "content": [
+    {
+      "type": "text",
+      "text": "{\n  \"is_request\": true,\n  \"broken_json\": true,\n"
+    }
+  ]
+}

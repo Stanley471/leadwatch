@@ -119,7 +119,7 @@ type Pipeline struct {
 	cfg        *config.Config
 	store      *store.Store
 	sources    []source.Source
-	classifier *classify.Classifier
+	classifier classify.Classifier
 	scorer     *score.Scorer
 	drafter    *draft.Drafter
 	notifier   *notify.Notifier
@@ -132,15 +132,27 @@ func New(
 	bio score.DeveloperBio,
 	notifier *notify.Notifier,
 ) *Pipeline {
+	var c classify.Classifier
+	if cfg.AnthropicAPIKey != "" {
+		c = classify.NewAnthropicClassifier(cfg.AnthropicAPIKey, cfg.ClassifierModel, nil)
+	} else {
+		c = classify.NewFallbackRuleBasedClassifier()
+	}
+
 	return &Pipeline{
 		cfg:        cfg,
 		store:      st,
 		sources:    sources,
-		classifier: classify.New(),
+		classifier: c,
 		scorer:     score.New(bio),
 		drafter:    draft.New(bio),
 		notifier:   notifier,
 	}
+}
+
+// SetClassifier allows overriding the classifier instance (e.g. for testing with FakeClassifier).
+func (p *Pipeline) SetClassifier(c classify.Classifier) {
+	p.classifier = c
 }
 
 // RunOnce executes a single polling, normalize/dedupe, and prefilter run across specified or all sources.
@@ -317,27 +329,9 @@ func (p *Pipeline) ProcessDownstream(ctx context.Context) error {
 		}
 	}
 
-	// 2. Stage Classify (processes "to_classify" posts)
-	toClassifyPosts, err := p.store.GetPostsByStatus(ctx, store.StatusToClassify, 100)
-	if err != nil {
-		return fmt.Errorf("fetching to_classify posts: %w", err)
-	}
-
-	for _, post := range toClassifyPosts {
-		if ctx.Err() != nil {
-			return ctx.Err()
-		}
-		res := p.classifier.Classify(ctx, post)
-		post.IsHiring = res.IsHiring
-		post.Category = res.Category
-		post.Confidence = res.Confidence
-
-		status := store.StatusClassified
-		if !res.IsHiring {
-			status = store.StatusIgnored
-		}
-
-		_ = p.store.SaveClassification(ctx, post.ID, res.IsHiring, res.Category, res.Confidence, status)
+	// 2. Stage Classify (processes "to_classify" posts using classifier)
+	if _, err := classify.ProcessToClassifyBatch(ctx, p.store, p.classifier, 100); err != nil {
+		slog.Error("error during ProcessToClassifyBatch", "err", err)
 	}
 
 	// 3. Stage Score (processes "classified" posts)

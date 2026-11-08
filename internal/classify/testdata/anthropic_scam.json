@@ -1,0 +1,12 @@
+{
+  "id": "msg_02Scam",
+  "type": "message",
+  "role": "assistant",
+  "model": "claude-3-5-haiku-20241022",
+  "content": [
+    {
+      "type": "text",
+      "text": "{\n  \"is_request\": true,\n  \"project_type\": \"landing_site\",\n  \"budget_amount\": 20,\n  \"budget_currency\": \"USD\",\n  \"urgency\": \"high\",\n  \"remote_ok\": true,\n  \"location_note\": null,\n  \"tech\": [\"WordPress\"],\n  \"scam_score\": 90,\n  \"confidence\": 88,\n  \"reason\": \"Vague requirements, severe underpayment ($20 for full site), pressure for instant off-platform contact\"\n}"
+    }
+  ]
+}
