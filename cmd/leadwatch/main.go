@@ -156,7 +156,7 @@ func runDaemon(ctx context.Context, cfg *config.Config, args []string) {
 	notifier := notify.New(cfg, nil)
 	pipe := pipeline.New(cfg, st, sources, bio, notifier)
 
-	sched := scheduler.New(pipe, cfg.PollInterval)
+	sched := scheduler.New(pipe, sources, cfg.PollInterval)
 	if err := sched.Start(ctx); err != nil && err != context.Canceled {
 		slog.Error("daemon terminated with error", "err", err)
 		os.Exit(1)

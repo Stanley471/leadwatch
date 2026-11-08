@@ -64,9 +64,9 @@ func LoadFromEnv() (*Config, error) {
 		}
 	}
 
-	pollInterval := 15 * time.Minute
+	pollInterval := 10 * time.Minute
 	if piStr := os.Getenv("POLL_INTERVAL"); piStr != "" {
-		if d, err := time.ParseDuration(piStr); err == nil && d >= time.Minute {
+		if d, err := time.ParseDuration(piStr); err == nil && d >= time.Second {
 			pollInterval = d
 		}
 	}

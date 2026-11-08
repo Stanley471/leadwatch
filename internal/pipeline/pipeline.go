@@ -252,19 +252,81 @@ func (p *Pipeline) RunOnce(ctx context.Context, sourceFilter string) error {
 	return nil
 }
 
-// RunCycle executes all stages end-to-end.
-func (p *Pipeline) RunCycle(ctx context.Context) error {
-	if err := p.RunOnce(ctx, "all"); err != nil {
-		return err
-	}
-
-	// Stage Classify (for posts in to_classify)
-	postsToClassify, err := p.store.GetPostsByStatus(ctx, store.StatusToClassify, 200)
+// PollSource polls a single source since its persistent cursor, normalizes and inserts posts as "new".
+func (p *Pipeline) PollSource(ctx context.Context, src source.Source) (int, error) {
+	name := src.Name()
+	lastPolled, err := p.store.GetSourceLastPolledAt(ctx, name)
 	if err != nil {
-		return err
+		return 0, fmt.Errorf("getting last_polled_at for %s: %w", name, err)
 	}
 
-	for _, post := range postsToClassify {
+	pollStartTime := time.Now().UTC()
+	slog.Info("polling source", "source", name, "since", lastPolled)
+	rawPosts, err := src.Poll(ctx, lastPolled)
+	if err != nil {
+		return 0, fmt.Errorf("polling %s: %w", name, err)
+	}
+
+	insertedCount := 0
+	for _, raw := range rawPosts {
+		post := &store.Post{
+			Source:      name,
+			ExternalID:  raw.ExternalID,
+			URL:         raw.URL,
+			Title:       raw.Title,
+			Author:      raw.Author,
+			Body:        raw.Body,
+			PublishedAt: raw.PostedAt,
+		}
+
+		NormalizePost(post)
+		inserted, err := p.store.InsertPostIfNew(ctx, post)
+		if err != nil {
+			slog.Error("error inserting new post", "source", name, "id", raw.ExternalID, "err", err)
+			continue
+		}
+		if inserted {
+			insertedCount++
+		}
+	}
+
+	if err := p.store.SetSourceLastPolledAt(ctx, name, pollStartTime); err != nil {
+		slog.Error("failed to update last_polled_at for source", "source", name, "err", err)
+	}
+
+	slog.Info("source polling finished", "source", name, "fetched", len(rawPosts), "new", insertedCount)
+	return insertedCount, nil
+}
+
+// ProcessDownstream executes stage-by-stage transitions:
+// new -> prefiltered (filtered_out or to_classify) -> classified -> scored -> drafted -> notified
+func (p *Pipeline) ProcessDownstream(ctx context.Context) error {
+	// 1. Stage Prefilter (processes "new" posts)
+	newPosts, err := p.store.GetPostsByStatus(ctx, store.StatusNew, 200)
+	if err != nil {
+		return fmt.Errorf("fetching new posts: %w", err)
+	}
+
+	for _, post := range newPosts {
+		if ctx.Err() != nil {
+			return ctx.Err()
+		}
+		nextStatus := PrefilterPost(post, p.cfg.Prefilter)
+		if err := p.store.UpdateStatus(ctx, post.ID, nextStatus); err != nil {
+			slog.Error("failed to update post stage after prefilter", "id", post.ID, "status", nextStatus, "err", err)
+		}
+	}
+
+	// 2. Stage Classify (processes "to_classify" posts)
+	toClassifyPosts, err := p.store.GetPostsByStatus(ctx, store.StatusToClassify, 100)
+	if err != nil {
+		return fmt.Errorf("fetching to_classify posts: %w", err)
+	}
+
+	for _, post := range toClassifyPosts {
+		if ctx.Err() != nil {
+			return ctx.Err()
+		}
 		res := p.classifier.Classify(ctx, post)
 		post.IsHiring = res.IsHiring
 		post.Category = res.Category
@@ -278,9 +340,16 @@ func (p *Pipeline) RunCycle(ctx context.Context) error {
 		_ = p.store.SaveClassification(ctx, post.ID, res.IsHiring, res.Category, res.Confidence, status)
 	}
 
-	// Stage Score
-	classifiedPosts, _ := p.store.GetPostsByStatus(ctx, store.StatusClassified, 200)
+	// 3. Stage Score (processes "classified" posts)
+	classifiedPosts, err := p.store.GetPostsByStatus(ctx, store.StatusClassified, 100)
+	if err != nil {
+		return fmt.Errorf("fetching classified posts: %w", err)
+	}
+
 	for _, post := range classifiedPosts {
+		if ctx.Err() != nil {
+			return ctx.Err()
+		}
 		res := p.scorer.Score(ctx, post)
 		status := store.StatusScored
 		if res.Score < 50 {
@@ -289,18 +358,33 @@ func (p *Pipeline) RunCycle(ctx context.Context) error {
 		_ = p.store.SaveScore(ctx, post.ID, res.Score, res.Reason, status)
 	}
 
-	// Stage Draft
-	scoredPosts, _ := p.store.GetPostsByStatus(ctx, store.StatusScored, 100)
+	// 4. Stage Draft (processes "scored" posts)
+	scoredPosts, err := p.store.GetPostsByStatus(ctx, store.StatusScored, 50)
+	if err != nil {
+		return fmt.Errorf("fetching scored posts: %w", err)
+	}
+
 	for _, post := range scoredPosts {
+		if ctx.Err() != nil {
+			return ctx.Err()
+		}
 		draftText := p.drafter.Draft(ctx, post)
 		_ = p.store.SaveDraft(ctx, post.ID, draftText, time.Now().UTC(), store.StatusDrafted)
 	}
 
-	// Stage Notify
-	draftedPosts, _ := p.store.GetPostsByStatus(ctx, store.StatusDrafted, 50)
+	// 5. Stage Notify (processes "drafted" posts, alerts owner on Telegram)
+	draftedPosts, err := p.store.GetPostsByStatus(ctx, store.StatusDrafted, 50)
+	if err != nil {
+		return fmt.Errorf("fetching drafted posts: %w", err)
+	}
+
 	for _, post := range draftedPosts {
+		if ctx.Err() != nil {
+			return ctx.Err()
+		}
 		if p.notifier != nil {
 			if err := p.notifier.NotifyAlert(ctx, post); err != nil {
+				slog.Error("failed to send telegram notification", "id", post.ID, "err", err)
 				continue
 			}
 		}
