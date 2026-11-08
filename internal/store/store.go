@@ -13,13 +13,18 @@ import (
 type Status string
 
 const (
-	StatusRaw        Status = "raw"
+	StatusNew         Status = "new"
+	StatusFilteredOut Status = "filtered_out"
+	StatusToClassify  Status = "to_classify"
+
+	// Legacy / downstream statuses
+	StatusRaw         Status = "raw"
 	StatusPrefiltered Status = "prefiltered"
-	StatusClassified Status = "classified"
-	StatusScored     Status = "scored"
-	StatusNotified   Status = "notified"
-	StatusDrafted    Status = "drafted"
-	StatusIgnored    Status = "ignored"
+	StatusClassified  Status = "classified"
+	StatusScored      Status = "scored"
+	StatusNotified    Status = "notified"
+	StatusDrafted     Status = "drafted"
+	StatusIgnored     Status = "ignored"
 )
 
 type Post struct {
@@ -97,9 +102,45 @@ func (s *Store) migrate(ctx context.Context) error {
 
 	CREATE INDEX IF NOT EXISTS idx_posts_status ON posts(status);
 	CREATE INDEX IF NOT EXISTS idx_posts_published ON posts(published_at);
+
+	CREATE TABLE IF NOT EXISTS sources (
+		name TEXT PRIMARY KEY,
+		last_polled_at TIMESTAMP NOT NULL
+	);
 	`
 	_, err := s.db.ExecContext(ctx, schema)
 	return err
+}
+
+// GetSourceLastPolledAt returns the timestamp when a source was last successfully polled.
+func (s *Store) GetSourceLastPolledAt(ctx context.Context, name string) (time.Time, error) {
+	var t time.Time
+	err := s.db.QueryRowContext(ctx, "SELECT last_polled_at FROM sources WHERE name = ?", name).Scan(&t)
+	if err == sql.ErrNoRows {
+		return time.Time{}, nil
+	}
+	if err != nil {
+		return time.Time{}, err
+	}
+	return t.UTC(), nil
+}
+
+// SetSourceLastPolledAt sets the timestamp cursor for a source.
+func (s *Store) SetSourceLastPolledAt(ctx context.Context, name string, t time.Time) error {
+	query := `
+	INSERT INTO sources (name, last_polled_at)
+	VALUES (?, ?)
+	ON CONFLICT(name) DO UPDATE SET last_polled_at = excluded.last_polled_at;
+	`
+	_, err := s.db.ExecContext(ctx, query, name, t.UTC())
+	return err
+}
+
+// InsertPostIfNew inserts a post with status "new" only if (source, external_id) does not exist.
+// Returns true if inserted, false if already existing.
+func (s *Store) InsertPostIfNew(ctx context.Context, p *Post) (bool, error) {
+	p.Status = StatusNew
+	return s.UpsertRaw(ctx, p)
 }
 
 func (s *Store) UpsertRaw(ctx context.Context, p *Post) (bool, error) {

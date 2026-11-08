@@ -93,9 +93,10 @@ func runMigrate(ctx context.Context, cfg *config.Config, args []string) {
 func runPoll(ctx context.Context, cfg *config.Config, args []string) {
 	fs := flag.NewFlagSet("poll", flag.ExitOnError)
 	dbPath := fs.String("db", cfg.DBPath, "path to sqlite database")
+	sourceFlag := fs.String("source", "all", "source to poll: reddit, hn, or all")
 	_ = fs.Parse(args)
 
-	slog.Info("running single poll cycle", "db_path", *dbPath)
+	slog.Info("running single poll cycle", "db_path", *dbPath, "source", *sourceFlag)
 	st, err := store.Open(*dbPath)
 	if err != nil {
 		slog.Error("failed to open database", "err", err)
@@ -119,8 +120,8 @@ func runPoll(ctx context.Context, cfg *config.Config, args []string) {
 	notifier := notify.New(cfg, nil)
 	pipe := pipeline.New(cfg, st, sources, bio, notifier)
 
-	if err := pipe.RunCycle(ctx); err != nil {
-		slog.Error("poll cycle failed", "err", err)
+	if err := pipe.RunOnce(ctx, *sourceFlag); err != nil {
+		slog.Error("poll RunOnce failed", "err", err)
 		os.Exit(1)
 	}
 	slog.Info("single poll cycle finished")

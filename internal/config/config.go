@@ -13,16 +13,17 @@ import (
 
 // Config holds environment-driven configuration for leadwatch.
 type Config struct {
-	DBPath             string        `json:"db_path"`
-	LogLevel           slog.Level    `json:"log_level"`
-	RedditClientID     string        `json:"reddit_client_id"`
-	RedditClientSecret string        `json:"reddit_client_secret"`
-	TelegramBotToken   string        `json:"telegram_bot_token"`
-	TelegramChatID     int64         `json:"telegram_chat_id"`
-	AnthropicAPIKey    string        `json:"anthropic_api_key"`
-	ClassifierModel    string        `json:"classifier_model"`
-	DrafterModel       string        `json:"drafter_model"`
-	PollInterval       time.Duration `json:"poll_interval"`
+	DBPath             string          `json:"db_path"`
+	LogLevel           slog.Level      `json:"log_level"`
+	RedditClientID     string          `json:"reddit_client_id"`
+	RedditClientSecret string          `json:"reddit_client_secret"`
+	TelegramBotToken   string          `json:"telegram_bot_token"`
+	TelegramChatID     int64           `json:"telegram_chat_id"`
+	AnthropicAPIKey    string          `json:"anthropic_api_key"`
+	ClassifierModel    string          `json:"classifier_model"`
+	DrafterModel       string          `json:"drafter_model"`
+	PollInterval       time.Duration   `json:"poll_interval"`
+	Prefilter          PrefilterConfig `json:"prefilter"`
 }
 
 // LoadFromEnv reads configuration from environment variables with defaults.
@@ -81,6 +82,7 @@ func LoadFromEnv() (*Config, error) {
 		ClassifierModel:    classifierModel,
 		DrafterModel:       drafterModel,
 		PollInterval:       pollInterval,
+		Prefilter:          DefaultPrefilterConfig(),
 	}
 
 	return cfg, nil
